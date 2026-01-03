@@ -57,7 +57,7 @@
   </style>
 </head>
 <body>
-  <h1>🎧 Full-Duplex Voice Chat Demo_OpenAI RealtimeAPI（UIシンプルver.）</h1>
+  <h1>🎧 Full-Duplex Voice Chat（マイク制御付き）</h1>
   <button id="startButton">Start Chat</button>
   <button id="micButton" class="on">
     <div id="micIndicator" class="on"></div>
@@ -89,14 +89,15 @@
 
       // DataChannel設定
       dataChannel = pc.createDataChannel("oai-events");
+
       dataChannel.onopen = () => {
         console.log("✅ DataChannel opened");
 
-        // 👇 初回AI発話トリガー
+        // 🎯 初回AI発話（text + audio両方指定が重要）
         dataChannel.send(JSON.stringify({
           type: "response.create",
           response: {
-            modalities: ["audio"],
+            modalities: ["audio", "text"],
             instructions: "こんにちは！音声でお話ししましょう。",
           },
         }));

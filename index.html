@@ -68,6 +68,7 @@
     let pc;
     let localStream;
     let micEnabled = true;
+    let dataChannel;
 
     async function startChat() {
       const res = await fetch("/api/session");
@@ -87,16 +88,19 @@
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
       // DataChannel設定
-      const dc = pc.createDataChannel("oai-events");
-      dc.onopen = () => {
+      dataChannel = pc.createDataChannel("oai-events");
+      dataChannel.onopen = () => {
         console.log("✅ DataChannel opened");
-        dc.send(JSON.stringify({
+
+        // 👇 初回AI発話トリガー
+        dataChannel.send(JSON.stringify({
           type: "response.create",
           response: {
             modalities: ["audio"],
-            instructions: "こんにちは！音声でお話ししましょう。"
-          }
+            instructions: "こんにちは！音声でお話ししましょう。",
+          },
         }));
+
         alert("✅ AIとの音声チャットを開始しました！");
       };
 

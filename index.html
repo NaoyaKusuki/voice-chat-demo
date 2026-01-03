@@ -18,41 +18,57 @@
       audioEl.autoplay = true;
       document.body.appendChild(audioEl);
 
+      // 受信音声を再生
       pc.ontrack = (event) => {
-        audioEl.srcObject = event.streams[0];
+        const stream = event.streams[0];
+        console.log("🎧 Received audio stream:", stream);
+        audioEl.srcObject = stream;
       };
 
-      const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-      for (const track of ms.getTracks()) {
-        pc.addTrack(track, ms);
+      // マイク入力
+      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      for (const track of localStream.getTracks()) {
+        pc.addTrack(track, localStream);
       }
 
+      // DataChannelでAIに指示を送る
+      const dc = pc.createDataChannel("oai-events");
+      dc.onmessage = (event) => console.log("📩 AI Event:", event.data);
+      dc.onopen = () => {
+        console.log("✅ DataChannel opened");
+        // 明示的に発話をトリガー
+        dc.send(JSON.stringify({
+          type: "response.create",
+          response: {
+            instructions: "こんにちは！調子はどうですか？（日本語で話してください）"
+          }
+        }));
+        alert("✅ AIとの音声通話が開始されました！（マイクに話しかけてみてください）");
+      };
+
+      // SDPオファー作成
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
       const baseUrl = "https://api.openai.com/v1/realtime";
       const model = "gpt-4o-realtime-preview-2024-12-17";
+
+      // 音声フォーマットをwavに指定（PCMより安定）
       const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${data.client_secret.value}`,
-          "Content-Type": "application/sdp"
+          "Content-Type": "application/sdp",
+          "Accept": "application/sdp",
         },
-        body: offer.sdp
+        body: offer.sdp.replace("opus/48000/2", "wav") // ここで出力をwavに変更
       });
 
       const answer = {
         type: "answer",
-        sdp: await sdpResponse.text()
+        sdp: await sdpResponse.text(),
       };
       await pc.setRemoteDescription(answer);
-
-      // ✅ ここが重要：AIに発話を促すトリガーを送る
-      const dc = pc.createDataChannel("oai-events");
-      dc.onopen = () => {
-        dc.send(JSON.stringify({ type: "response.create" }));
-        alert("✅ AIとの音声通話が開始されました！（話しかけてみてください）");
-      };
     }
 
     document.getElementById("startButton").addEventListener("click", startChat);

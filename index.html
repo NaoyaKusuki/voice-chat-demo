@@ -2,79 +2,102 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Realtime Full-Duplex + AI字幕</title>
+  <title>Realtime Full-Duplex Voice Chat</title>
   <style>
-    body { font-family: sans-serif; margin: 20px; }
-    #subtitle {
-      margin-top: 20px;
-      background: #f1f8e9;
-      padding: 12px;
-      border-radius: 8px;
-      font-size: 18px;
-      line-height: 1.5;
-      min-height: 40px;
-      white-space: pre-wrap;
+    body { font-family: sans-serif; margin: 20px; text-align: center; }
+    h1 { font-size: 20px; margin-bottom: 10px; }
+
+    button {
+      margin: 10px;
+      padding: 12px 24px;
+      font-size: 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.3s ease, transform 0.1s ease;
     }
+    button:hover { transform: scale(1.05); }
+
+    #startButton { background-color: #4caf50; color: white; }
+
+    #micButton {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: white;
+    }
+
+    #micIndicator {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background-color: #ccc;
+      transition: background-color 0.3s ease, opacity 0.3s ease;
+    }
+
+    /* 🔴 マイクON時に点滅アニメーション */
+    #micIndicator.on {
+      background-color: #ff3b3b;
+      animation: blink 1s infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    /* ⚪️ マイクOFF時 */
+    #micIndicator.off {
+      background-color: #777;
+      opacity: 0.8;
+      animation: none;
+    }
+
   </style>
 </head>
 <body>
-  <h1>🎧 Full-Duplex Realtime Chat（AI字幕つき）</h1>
+  <h1>🎧 Full-Duplex Voice Chat Demo_OpenAI RealtimeAPI（UIシンプルver.）</h1>
   <button id="startButton">Start Chat</button>
-  <div id="subtitle">(AIの発話内容がここに表示されます)</div>
+  <button id="micButton" class="on">
+    <div id="micIndicator" class="on"></div>
+    <span id="micLabel">マイクON</span>
+  </button>
 
   <script>
-    async function startChat() {
-      const subtitleBox = document.getElementById("subtitle");
+    let pc;
+    let localStream;
+    let micEnabled = true;
 
-      // セッション作成
+    async function startChat() {
       const res = await fetch("/api/session");
       const data = await res.json();
       const EPHEMERAL_KEY = data.client_secret.value;
 
-      const pc = new RTCPeerConnection();
+      pc = new RTCPeerConnection();
 
-      // 出力音声
+      // AIの音声出力
       const audioEl = document.createElement("audio");
       audioEl.autoplay = true;
       document.body.appendChild(audioEl);
       pc.ontrack = (event) => { audioEl.srcObject = event.streams[0]; };
 
-      // マイク入力
-      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // マイク入力を取得
+      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-      // DataChannelでイベント受信
+      // DataChannel設定
       const dc = pc.createDataChannel("oai-events");
-
-      dc.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-
-          // 🎯 ここを修正：audio_transcript.delta を検出して表示
-          if (msg.type === "response.audio_transcript.delta") {
-            subtitleBox.textContent += msg.delta;
-          }
-
-          // 出力完了イベントで改行
-          if (msg.type === "response.audio_transcript.done") {
-            subtitleBox.textContent += "\n";
-          }
-
-        } catch (e) {
-          console.log("非JSONメッセージ:", event.data);
-        }
-      };
-
       dc.onopen = () => {
         console.log("✅ DataChannel opened");
         dc.send(JSON.stringify({
           type: "response.create",
           response: {
-            modalities: ["audio", "text"],
-            instructions: "こんにちは！音声と同時に字幕（テキスト）も出してください。"
+            modalities: ["audio"],
+            instructions: "こんにちは！音声でお話ししましょう。"
           }
         }));
-        alert("✅ AIとの音声チャットを開始しました！（字幕つき）");
+        alert("✅ AIとの音声チャットを開始しました！");
       };
 
       const offer = await pc.createOffer();
@@ -96,7 +119,29 @@
       await pc.setRemoteDescription(answer);
     }
 
+    // マイクON/OFF切り替え
+    function toggleMic() {
+      if (!localStream) return;
+
+      micEnabled = !micEnabled;
+      localStream.getAudioTracks().forEach(track => {
+        track.enabled = micEnabled;
+      });
+
+      const micIndicator = document.getElementById("micIndicator");
+      const micLabel = document.getElementById("micLabel");
+
+      if (micEnabled) {
+        micLabel.textContent = "マイクON";
+        micIndicator.className = "on";
+      } else {
+        micLabel.textContent = "マイクOFF";
+        micIndicator.className = "off";
+      }
+    }
+
     document.getElementById("startButton").addEventListener("click", startChat);
+    document.getElementById("micButton").addEventListener("click", toggleMic);
   </script>
 </body>
 </html>

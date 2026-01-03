@@ -2,75 +2,63 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Realtime Full-Duplex + AI字幕</title>
+  <title>Realtime + Debug (字幕検証)</title>
   <style>
     body { font-family: sans-serif; margin: 20px; }
-    h1 { font-size: 20px; }
-    #subtitle {
-      margin-top: 20px;
-      background: #f1f8e9;
-      padding: 12px;
-      border-radius: 8px;
-      font-size: 18px;
-      line-height: 1.5;
-      min-height: 40px;
-    }
+    #subtitle { background: #f1f8e9; padding: 12px; border-radius: 8px; margin-top: 20px; min-height: 40px; }
   </style>
 </head>
 <body>
-  <h1>🎧 Full-Duplex Realtime Chat（AI字幕つき）</h1>
+  <h1>🎧 Realtime AI Chat（字幕デバッグ中）</h1>
   <button id="startButton">Start Chat</button>
   <div id="subtitle">(AIの発話内容がここに表示されます)</div>
 
   <script>
     async function startChat() {
       const subtitleBox = document.getElementById("subtitle");
-
-      // セッション作成
       const res = await fetch("/api/session");
       const data = await res.json();
       const EPHEMERAL_KEY = data.client_secret.value;
 
       const pc = new RTCPeerConnection();
-
-      // 出力音声
       const audioEl = document.createElement("audio");
       audioEl.autoplay = true;
       document.body.appendChild(audioEl);
       pc.ontrack = (event) => { audioEl.srcObject = event.streams[0]; };
 
-      // マイク入力
       const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-      // DataChannelでイベント受信
+      // DataChannel設定
       const dc = pc.createDataChannel("oai-events");
 
       dc.onmessage = (event) => {
+        console.log("📩 DataChannel message:", event.data);
         try {
           const msg = JSON.parse(event.data);
-          // AIの発話テキストをリアルタイム表示
           if (msg.type === "response.output_text.delta") {
             subtitleBox.textContent += msg.delta;
           }
-          // 応答が終わったら改行
           if (msg.type === "response.completed") {
             subtitleBox.textContent += "\n";
           }
         } catch (e) {
+          // JSONでないメッセージも記録
           console.log("非JSONメッセージ:", event.data);
         }
       };
 
       dc.onopen = () => {
         console.log("✅ DataChannel opened");
+        // 応答トリガー
         dc.send(JSON.stringify({
           type: "response.create",
           response: {
-            instructions: "こんにちは！字幕つきのフルデュプレックスモードでお話しします。"
-          }
+            modalities: ["audio", "text"],
+            instructions: "こんにちは！音声と同時にテキストも出力してください。",
+          },
         }));
-        alert("✅ AIとの音声チャットを開始しました！（字幕つき）");
+        alert("✅ 接続完了！AIが話すときに字幕が出るか確認してください。");
       };
 
       const offer = await pc.createOffer();

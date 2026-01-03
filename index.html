@@ -18,7 +18,7 @@
     }
     button:hover { transform: scale(1.05); }
 
-    #startButton { background-color: #006FC5; color: white; }
+    #startButton { background-color: #4caf50; color: white; }
 
     #micButton {
       display: flex;
@@ -32,11 +32,10 @@
       width: 14px;
       height: 14px;
       border-radius: 50%;
-      background-color: #006FC5;
+      background-color: #ccc;
       transition: background-color 0.3s ease, opacity 0.3s ease;
     }
 
-    /* 🔴 マイクON時に点滅アニメーション */
     #micIndicator.on {
       background-color: #ff3b3b;
       animation: blink 1s infinite;
@@ -47,17 +46,26 @@
       50% { opacity: 0.3; }
     }
 
-    /* ⚪️ マイクOFF時 */
     #micIndicator.off {
       background-color: #777;
       opacity: 0.8;
       animation: none;
     }
-
   </style>
 </head>
+
 <body>
-  <h1>Full-Duplex Voice Chat Demo_OpenAI RealtimeAPI（UIシンプルver.）</h1>
+  <!-- 🔐 パスワード認証スクリプト -->
+  <script>
+    const correctPassword = "0303";
+    const input = prompt("このデモはパスワードで保護されています。4桁の数字を入力してください：");
+    if (input !== correctPassword) {
+      document.body.innerHTML = "<h2>アクセスが拒否されました。</h2><p>正しいパスワードを入力してください。</p>";
+      throw new Error("Access denied");
+    }
+  </script>
+
+  <h1>🎧 Full-Duplex Voice Chat（マイク制御付き）</h1>
   <button id="startButton">Start Chat</button>
   <button id="micButton" class="on">
     <div id="micIndicator" class="on"></div>
@@ -77,23 +85,17 @@
 
       pc = new RTCPeerConnection();
 
-      // AIの音声出力
       const audioEl = document.createElement("audio");
       audioEl.autoplay = true;
       document.body.appendChild(audioEl);
       pc.ontrack = (event) => { audioEl.srcObject = event.streams[0]; };
 
-      // マイク入力を取得
       localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-      // DataChannel設定
       dataChannel = pc.createDataChannel("oai-events");
-
       dataChannel.onopen = () => {
         console.log("✅ DataChannel opened");
-
-        // 🎯 初回AI発話（text + audio両方指定が重要）
         dataChannel.send(JSON.stringify({
           type: "response.create",
           response: {
@@ -101,7 +103,6 @@
             instructions: "こんにちは！音声でお話ししましょう。",
           },
         }));
-
         alert("✅ AIとの音声チャットを開始しました！");
       };
 
@@ -124,7 +125,6 @@
       await pc.setRemoteDescription(answer);
     }
 
-    // マイクON/OFF切り替え
     function toggleMic() {
       if (!localStream) return;
 

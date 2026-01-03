@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Voice Chat Demo</title>
+  <title>Voice Chat Demo (OpenAI Realtime API)</title>
 </head>
 <body>
   <h1>🎤 Voice Chat Demo (OpenAI Realtime API)</h1>
@@ -10,32 +10,26 @@
 
   <script>
     async function startChat() {
-      // サーバーから一時セッションを取得
       const response = await fetch("/api/session");
       const data = await response.json();
 
-      // WebRTCの接続を作成
       const pc = new RTCPeerConnection();
       const audioEl = document.createElement("audio");
       audioEl.autoplay = true;
       document.body.appendChild(audioEl);
 
-      // スピーカー音声の出力設定
       pc.ontrack = (event) => {
         audioEl.srcObject = event.streams[0];
       };
 
-      // ローカルのマイク音声を取得
       const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
       for (const track of ms.getTracks()) {
         pc.addTrack(track, ms);
       }
 
-      // Realtime APIサーバーへの接続設定
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // OpenAI側のRealtimeセッションと接続
       const baseUrl = "https://api.openai.com/v1/realtime";
       const model = "gpt-4o-realtime-preview-2024-12-17";
       const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
@@ -53,7 +47,12 @@
       };
       await pc.setRemoteDescription(answer);
 
-      alert("✅ AIとの音声通話が開始されました！（マイクに話しかけてみてください）");
+      // ✅ ここが重要：AIに発話を促すトリガーを送る
+      const dc = pc.createDataChannel("oai-events");
+      dc.onopen = () => {
+        dc.send(JSON.stringify({ type: "response.create" }));
+        alert("✅ AIとの音声通話が開始されました！（話しかけてみてください）");
+      };
     }
 
     document.getElementById("startButton").addEventListener("click", startChat);

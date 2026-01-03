@@ -1,17 +1,17 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <title>Voice Chat Demo (OpenAI Realtime API)</title>
+  <meta charset="UTF-8">
+  <title>Realtime Full-Duplex Test</title>
 </head>
 <body>
-  <h1>🎤 Voice Chat Demo (OpenAI Realtime API)</h1>
-  <button id="startButton">Start Chat</button>
+  <h1>🎧 Full-Duplex Realtime Test</h1>
+  <button id="startButton">Start Full-Duplex Chat</button>
 
   <script>
     async function startChat() {
-      const response = await fetch("/api/session");
-      const data = await response.json();
+      const res = await fetch("/api/session");
+      const data = await res.json();
       const EPHEMERAL_KEY = data.client_secret.value;
 
       const pc = new RTCPeerConnection();
@@ -20,40 +20,35 @@
       const audioEl = document.createElement("audio");
       audioEl.autoplay = true;
       document.body.appendChild(audioEl);
-
       pc.ontrack = (event) => {
-        console.log("🎧 Audio track received");
         audioEl.srcObject = event.streams[0];
       };
 
-      // 音声入力
-      const ms = await navigator.mediaDevices.getUserMedia({ audio: true });
-      for (const track of ms.getTracks()) {
-        pc.addTrack(track, ms);
-      }
+      // マイク入力
+      const localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-      // DataChannelでトリガーを送る
+      // DataChannelで制御
       const dc = pc.createDataChannel("oai-events");
       dc.onopen = () => {
         console.log("✅ DataChannel opened");
+        // 初回のAI発話をトリガー
         dc.send(JSON.stringify({
           type: "response.create",
           response: {
-            instructions: "こんにちは！調子はどうですか？日本語で話してみてください。",
+            instructions: "こんにちは！同時に話しても応答できます。"
           }
         }));
-        alert("✅ AIとの音声通話が開始されました！（話しかけてください）");
+        alert("✅ Full-Duplexモード開始！AIと同時に話してみてください。");
       };
-      dc.onmessage = (event) => console.log("📩", event.data);
 
-      // Offer作成
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
-      // OpenAI側にSDPを送信してAnswerを取得
       const baseUrl = "https://api.openai.com/v1/realtime";
       const model = "gpt-4o-realtime-preview-2024-12-17";
-      const response2 = await fetch(`${baseUrl}?model=${model}`, {
+
+      const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${EPHEMERAL_KEY}`,
@@ -64,7 +59,7 @@
 
       const answer = {
         type: "answer",
-        sdp: await response2.text()
+        sdp: await sdpResponse.text()
       };
       await pc.setRemoteDescription(answer);
     }

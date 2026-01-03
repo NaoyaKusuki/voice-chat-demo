@@ -18,7 +18,7 @@
     }
     button:hover { transform: scale(1.05); }
 
-    #startButton { background-color: #4caf50; color: white; }
+    #startButton { background-color: #0072BC; color: white; }
 
     #micButton {
       display: flex;
@@ -57,7 +57,7 @@
 <body>
   <!-- 🔐 パスワード認証スクリプト -->
   <script>
-    const correctPassword = "0303";
+    const correctPassword = "0033";
     const input = prompt("このデモはパスワードで保護されています。4桁の数字を入力してください：");
     if (input !== correctPassword) {
       document.body.innerHTML = "<h2>アクセスが拒否されました。</h2><p>正しいパスワードを入力してください。</p>";

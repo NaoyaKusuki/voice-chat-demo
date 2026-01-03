@@ -9,7 +9,7 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: "gpt-4o-realtime-preview-2024-12-17",
         voice: "verse",
-        modalities: ["audio"], // 🟢 音声のみ
+        modalities: ["audio"],
         input_audio_format: "pcm16",
         output_audio_format: "pcm16"
       }),
@@ -23,6 +23,7 @@ export default async function handler(req, res) {
     const data = await response.json();
     res.status(200).json(data);
   } catch (err) {
+    console.error("❌ OpenAI Realtime API error:", err);
     res.status(500).json({ error: err.message });
   }
 }

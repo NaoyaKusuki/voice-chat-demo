@@ -77,11 +77,28 @@
   </button>
 
   <script>
+    // -----------------------
+    // 変数（グローバル）
+    // -----------------------
     let pc;
     let localStream;
     let micEnabled = true;
     let dataChannel;
 
+    // -----------------------
+    // 相槌関連パラメータ（調整可）
+    // -----------------------
+    const BACKCHANNEL_MIN_INTERVAL_MS = 900; // 相槌の最低間隔
+    const BACKCHANNEL_SPEAKING_MS = 600;     // 発話継続がこれ以上なら相槌対象
+    const VOLUME_THRESHOLD = 0.02;           // RMS閾値（要調整）
+
+    let lastBackchannelAt = 0;
+    let speakingStart = null;
+    let lastModelResponseAt = 0; // モデル/サーバの直近応答タイムスタンプ
+
+    // -----------------------
+    // startChat - メイン処理
+    // -----------------------
     async function startChat() {
       const res = await fetch("/api/session");
       const data = await res.json();
@@ -89,17 +106,34 @@
 
       pc = new RTCPeerConnection();
 
+      // リモート音声を再生する <audio>
       const audioEl = document.createElement("audio");
       audioEl.autoplay = true;
       document.body.appendChild(audioEl);
       pc.ontrack = (event) => { audioEl.srcObject = event.streams[0]; };
 
+      // マイク取得
       localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
+      // ===== VAD 用の AudioContext / analyser を作る（localStream が必要） =====
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(localStream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048; // 解像度（チューニング可能）
+      source.connect(analyser);
+      // ======================================================================
+
+      // DataChannel を作成（oai-events を使用）
       dataChannel = pc.createDataChannel("oai-events");
+
+      // DataChannel の受信イベント監視（モデルの応答検出用）
+      attachDataChannelListeners(dataChannel);
+
       dataChannel.onopen = () => {
         console.log("✅ DataChannel opened");
+
+        // 初期プロンプト（既存の挨拶）
         dataChannel.send(JSON.stringify({
           type: "response.create",
           response: {
@@ -107,9 +141,14 @@
             instructions: "こんにちは！音声でお話ししましょう。",
           },
         }));
+
         alert("✅ AIとの音声チャットを開始しました！");
+
+        // ここで VAD を開始して相槌トリガを有効にする
+        startBackchannelVAD(analyser, dataChannel);
       };
 
+      // Offer 作成〜 Realtime API に SDP 送信
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
@@ -129,6 +168,9 @@
       await pc.setRemoteDescription(answer);
     }
 
+    // -----------------------
+    // マイクの ON/OFF 切替
+    // -----------------------
     function toggleMic() {
       if (!localStream) return;
 
@@ -149,6 +191,99 @@
       }
     }
 
+    // -----------------------
+    // VAD ＋ 相槌トリガ（analyser と dataChannel を渡す）
+    // -----------------------
+    function startBackchannelVAD(analyser, dataChannel) {
+      const data = new Uint8Array(analyser.fftSize);
+
+      function frame() {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = (data[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / data.length);
+
+        const now = Date.now();
+
+        if (rms > VOLUME_THRESHOLD) {
+          if (!speakingStart) speakingStart = now;
+          const spokeFor = now - speakingStart;
+
+          // 発話が継続していて、最小間隔を満たし、かつモデル直近応答と被らない場合に送信
+          if (
+            spokeFor > BACKCHANNEL_SPEAKING_MS &&
+            (now - lastBackchannelAt > BACKCHANNEL_MIN_INTERVAL_MS) &&
+            (now - lastModelResponseAt > 1000)
+          ) {
+            sendBackchannelResponseCreate(dataChannel);
+            lastBackchannelAt = now;
+          }
+        } else {
+          speakingStart = null;
+        }
+
+        requestAnimationFrame(frame);
+      }
+
+      frame();
+    }
+
+    // -----------------------
+    // DataChannel 経由で response.create を投げる（相槌専用）
+    // -----------------------
+    function sendBackchannelResponseCreate(dataChannel) {
+      if (!dataChannel || dataChannel.readyState !== "open") return;
+
+      const now = Date.now();
+      if (now - lastBackchannelAt < BACKCHANNEL_MIN_INTERVAL_MS) return;
+
+      const payload = {
+        type: "response.create",
+        response: {
+          modalities: ["audio"],
+          instructions: "相槌だけを短く一語で返してください。日本語で。候補: はい, ええ, なるほど, そうですね。短く抑制的に。",
+          // voice: "verse" // 必要なら追加
+        }
+      };
+
+      dataChannel.send(JSON.stringify(payload));
+    }
+
+    // -----------------------
+    // DataChannel の受信を監視してモデル応答タイムスタンプを更新
+    // -----------------------
+    function attachDataChannelListeners(dc) {
+      if (!dc) return;
+
+      dc.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data || "{}");
+
+          // Realtime のイベントで model の生成・レスポンスイベントが来たらタイムスタンプ更新
+          // 実際のイベント名は環境により異なる場合がありますが、response.* 系を想定
+          if (typeof msg.type === "string" && msg.type.startsWith("response.")) {
+            lastModelResponseAt = Date.now();
+          }
+          // console.debug("DC message:", msg);
+        } catch (e) {
+          // 非JSONメッセージは無視
+        }
+      };
+
+      dc.onclose = () => {
+        console.log("DataChannel closed");
+      };
+      dc.onerror = (e) => {
+        console.warn("DataChannel error", e);
+      };
+    }
+
+    // -----------------------
+    // イベントバインド
+    // -----------------------
     document.getElementById("startButton").addEventListener("click", startChat);
     document.getElementById("micButton").addEventListener("click", toggleMic);
   </script>
